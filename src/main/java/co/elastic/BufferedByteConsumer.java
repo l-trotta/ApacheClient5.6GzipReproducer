@@ -18,21 +18,29 @@
  */
 package co.elastic;
 
-import org.apache.hc.core5.http.ContentTooLongException;
-import org.apache.hc.core5.http.ContentType;
-import org.apache.hc.core5.http.io.entity.ByteArrayEntity;
-import org.apache.hc.core5.http.nio.entity.AbstractBinAsyncEntityConsumer;
-import org.apache.hc.core5.util.ByteArrayBuffer;
-
-import java.nio.ByteBuffer;
-
 import static co.elastic.Main.DEFAULT_BUFFER_LIMIT;
 
-public class BufferedByteConsumer extends AbstractBinAsyncEntityConsumer<ByteArrayEntity> {
+import java.io.IOException;
+import java.nio.ByteBuffer;
 
-    private volatile ByteArrayBuffer buffer;
+import org.apache.hc.core5.concurrent.FutureCallback;
+import org.apache.hc.core5.http.ContentTooLongException;
+import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.EntityDetails;
+import org.apache.hc.core5.http.HttpException;
+import org.apache.hc.core5.http.io.entity.ByteArrayEntity;
+import org.apache.hc.core5.http.nio.AsyncEntityConsumer;
+import org.apache.hc.core5.http.nio.entity.AbstractBinDataConsumer;
+import org.apache.hc.core5.util.ByteArrayBuffer;
+
+public class BufferedByteConsumer extends AbstractBinDataConsumer implements AsyncEntityConsumer<ByteArrayEntity> {
+
     private final int limit;
-    private ContentType contentType;
+    private volatile ByteArrayBuffer buffer;
+    private volatile FutureCallback<ByteArrayEntity> resultCallback;
+    private volatile ContentType contentType;
+    private volatile String contentEncoding;
+    private volatile ByteArrayEntity result;
 
     public BufferedByteConsumer(int bufferLimit) {
         super();
@@ -44,13 +52,15 @@ public class BufferedByteConsumer extends AbstractBinAsyncEntityConsumer<ByteArr
     }
 
     @Override
-    protected void streamStart(final ContentType contentType) {
-        this.contentType = contentType;
+    public void streamStart(final EntityDetails entityDetails, final FutureCallback<ByteArrayEntity> resultCallback) throws HttpException, IOException {
+        this.contentType = entityDetails != null ? ContentType.parse(entityDetails.getContentType()) : null;
+        this.contentEncoding = entityDetails != null ? entityDetails.getContentEncoding() : null;
+        this.resultCallback = resultCallback;
     }
 
     @Override
     protected int capacityIncrement() {
-        return limit;
+        return Integer.MAX_VALUE;
     }
 
     @Override
@@ -64,10 +74,25 @@ public class BufferedByteConsumer extends AbstractBinAsyncEntityConsumer<ByteArr
     }
 
     @Override
-    protected ByteArrayEntity generateContent() {
-        // using a ByteArrayEntity that sets content encoding as null,
-        // but where to find content encoding to pass?
-        return new ByteArrayEntity(buffer.toByteArray(), contentType);
+    protected final void completed() throws IOException {
+        result = new ByteArrayEntity(buffer.toByteArray(), contentType, contentEncoding);
+        if (resultCallback != null) {
+            resultCallback.completed(result);
+        }
+        releaseResources();
+    }
+
+    @Override
+    public ByteArrayEntity getContent() {
+        return result;
+    }
+
+    @Override
+    public final void failed(final Exception cause) {
+        if (resultCallback != null) {
+            resultCallback.failed(cause);
+        }
+        releaseResources();
     }
 
     @Override
