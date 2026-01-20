@@ -38,7 +38,7 @@ class BasicAsyncResponseConsumer extends AbstractAsyncResponseConsumer<ClassicHt
     /**
      * Creates a new instance of this consumer with the provided buffer limit
      */
-    BasicAsyncResponseConsumer(AbstractBinAsyncEntityConsumer consumer) {
+    BasicAsyncResponseConsumer(BufferedByteConsumer consumer) {
         super(consumer);
     }
 
